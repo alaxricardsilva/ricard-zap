@@ -143,25 +143,27 @@ async def handle_wuzapi_webhook(request: Request):
         print(json.dumps(data, indent=2))
         print("------------------------------------")
 
-        # 2. Verificar se 'jsonData' existe e é uma string
-        if "jsonData" not in data or not isinstance(data["jsonData"], str):
-            print("Ignorando webhook: 'jsonData' ausente ou não é uma string.")
-            return {"status": "ignored", "reason": "missing or invalid jsonData"}
+        # Primeiro, vamos determinar a fonte dos dados
+        raw_data = data
+        if "jsonData" in data and isinstance(data.get("jsonData"), str):
+            print("Formato de webhook detectado: Dados dentro de 'jsonData'.")
+            try:
+                raw_data = json.loads(data["jsonData"])
+            except json.JSONDecodeError:
+                print("Erro: Falha ao decodificar o JSON em 'jsonData'.")
+                raise HTTPException(status_code=400, detail="JSON inválido no campo jsonData.")
+        elif "event" in data and "type" in data:
+            print("Formato de webhook detectado: Dados no corpo principal.")
+        else:
+            print("Ignorando webhook: formato de dados não reconhecido.")
+            return {"status": "ignored", "reason": "unrecognized data format"}
 
-        # 3. Analisar a string 'jsonData'
-        try:
-            wuzapi_data = json.loads(data["jsonData"])
-        except json.JSONDecodeError:
-            print("Erro: Falha ao decodificar o JSON em 'jsonData'.")
-            raise HTTPException(status_code=400, detail="JSON inválido no campo jsonData.")
-
-        # 4. Extrair o tipo de evento e os dados do evento
-        event_type = wuzapi_data.get("type")
-        event_data = wuzapi_data.get("event", {})
-
-        # 5. Processar apenas eventos de "Message" e ignorar mensagens de grupo por enquanto
-        # E também verificar se não é uma mensagem de status
+        # Agora, com os dados corretos, processamos o evento
+        event_type = raw_data.get("type")
+        event_data = raw_data.get("event", {})
         info = event_data.get("Info", {})
+
+        # 5. Processar apenas eventos de "Message" e ignorar o resto
         if event_type == "Message" and not info.get("IsGroup") and info.get("Chat") != "status@broadcast":
             message = event_data.get("Message", {})
             
