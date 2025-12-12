@@ -2,7 +2,9 @@ services:
   ricard-zap-bridge:
     # 'build' diz ao Docker para construir a imagem a partir do Dockerfile
     # que está dentro do diretório ./Ricard-ZAP
-    build: ./Ricard-ZAP
+    build:
+      context: .
+      dockerfile: Dockerfile
     
     # Reinicia o serviço automaticamente se ele falhar
     restart: unless-stopped
