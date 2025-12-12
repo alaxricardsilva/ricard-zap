@@ -137,54 +137,80 @@ def update_contact_avatar(contact_id: int, avatar_url: str):
 @app.post("/webhook/wuzapi")
 async def handle_wuzapi_webhook(request: Request):
     try:
+        # 1. Obter o corpo JSON bruto da solicitação
         data = await request.json()
         print("--- Webhook Recebido do Wuzapi ---")
         print(json.dumps(data, indent=2))
         print("------------------------------------")
-        
-        # --- LÓGICA DE PROCESSAMENTO DO WEBHOOK ---
-        event_type = data.get("event")
-        payload = data.get("data", {})
 
-        # 1. Processar apenas eventos de mensagem recebida
-        if event_type == "messages.upsert":
-            message_type = payload.get("message", {}).get("type")
-            if message_type not in ["text", "image", "video", "audio", "file"]:
-                print(f"Ignorando tipo de mensagem não suportado: {message_type}")
-                return {"status": "ignored", "reason": "unsupported message type"}
+        # 2. Verificar se 'jsonData' existe e é uma string
+        if "jsonData" not in data or not isinstance(data["jsonData"], str):
+            print("Ignorando webhook: 'jsonData' ausente ou não é uma string.")
+            return {"status": "ignored", "reason": "missing or invalid jsonData"}
 
-            sender_phone = payload.get("key", {}).get("remoteJid").split('@')[0]
-            sender_name = payload.get("pushName", sender_phone)
-            message_content = payload.get("message", {}).get("text", {}).get("text", "")
+        # 3. Analisar a string 'jsonData'
+        try:
+            wuzapi_data = json.loads(data["jsonData"])
+        except json.JSONDecodeError:
+            print("Erro: Falha ao decodificar o JSON em 'jsonData'.")
+            raise HTTPException(status_code=400, detail="JSON inválido no campo jsonData.")
+
+        # 4. Extrair o tipo de evento e os dados do evento
+        event_type = wuzapi_data.get("type")
+        event_data = wuzapi_data.get("event", {})
+
+        # 5. Processar apenas eventos de "Message" e ignorar mensagens de grupo por enquanto
+        # E também verificar se não é uma mensagem de status
+        info = event_data.get("Info", {})
+        if event_type == "Message" and not info.get("IsGroup") and info.get("Chat") != "status@broadcast":
+            message = event_data.get("Message", {})
             
-            # Para outros tipos de mídia, você pode querer registrar a URL ou um placeholder
-            if not message_content:
+            # Precisamos de uma maneira confiável de obter o número do remetente. 'SenderAlt' parece bom.
+            sender_alt = info.get("SenderAlt", "")
+            if not sender_alt:
+                print("Ignorando mensagem: 'SenderAlt' não encontrado.")
+                return {"status": "ignored", "reason": "SenderAlt not found"}
+
+            sender_phone = sender_alt.split(':')[0].split('@')[0] # Garante que pegamos apenas o número
+            sender_name = info.get("PushName", sender_phone) # Usa o telefone se não houver nome
+            message_content = message.get("conversation") # Para mensagens de texto
+
+            # Lida com outros tipos de mensagem, se necessário no futuro
+            message_type = info.get("Type")
+            if message_type != "text" and not message_content:
+                # Por enquanto, vamos apenas dizer que tipo de mídia foi recebido
                 message_content = f"[{message_type.capitalize()} recebida]"
 
-            # 2. Buscar ou Criar Contato no Chatwoot
+            if not message_content:
+                print("Ignorando mensagem: Conteúdo vazio.")
+                return {"status": "ignored", "reason": "empty message content"}
+
+            # 6. Buscar ou Criar Contato no Chatwoot
             contact_id = search_or_create_contact(sender_name, sender_phone)
             if not contact_id:
                 raise HTTPException(status_code=500, detail="Falha ao buscar ou criar contato no Chatwoot.")
 
-            # 3. Buscar ou Criar Conversa
+            # 7. Buscar ou Criar Conversa
             conversation_id = find_or_create_conversation(contact_id)
             if not conversation_id:
                 raise HTTPException(status_code=500, detail="Falha ao buscar ou criar conversa no Chatwoot.")
 
-            # 4. Enviar Mensagem para a Conversa
+            # 8. Enviar Mensagem para a Conversa
             send_message_to_conversation(conversation_id, message_content)
+            
+            print("Webhook processado com sucesso.")
+            return {"status": "success", "message": "Webhook processado com sucesso."}
 
-            # 5. Tentar atualizar o avatar (se disponível)
-            profile_pic_url = payload.get("profilePicUrl")
-            if profile_pic_url:
-                update_contact_avatar(contact_id, profile_pic_url)
+        else:
+            is_group = info.get("IsGroup", "desconhecido")
+            print(f"Ignorando evento: tipo '{event_type}' ou é de grupo '{is_group}'.")
+            return {"status": "ignored", "reason": f"Event type '{event_type}' or group message"}
 
-        return {"status": "success", "message": "Webhook processado com sucesso."}
-
-        return {"status": "success", "message": "Webhook recebido com sucesso."}
     except Exception as e:
-        print(f"Erro ao processar o webhook: {e}")
-        raise HTTPException(status_code=500, detail="Erro interno no servidor da ponte.")
+        print(f"Erro fatal ao processar o webhook: {e}")
+        # Retorna um erro 500 para o chamador (WuzAPI)
+        raise HTTPException(status_code=500, detail=f"Erro interno no servidor da ponte: {e}")
+
 
 # Endpoint de teste
 @app.get("/")
