@@ -33,6 +33,11 @@ def search_contact(phone_number: str):
     search_endpoint = f"{CHATWOOT_URL}/api/v1/accounts/{CHATWOOT_ACCOUNT_ID}/contacts/search"
     params = {'q': search_phone}
     try:
+        print("--- Depuração da Requisição para o Chatwoot ---")
+        print(f"URL da Requisição: {search_endpoint}")
+        print(f"Cabeçalhos (Headers): {HEADERS}")
+        print(f"Parâmetros (Params): {params}")
+        print("---------------------------------------------")
         response = requests.get(search_endpoint, headers=HEADERS, params=params)
         response.raise_for_status()
         data = response.json()
