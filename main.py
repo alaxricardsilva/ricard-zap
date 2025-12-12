@@ -1,36 +1,52 @@
 import os
+import sys
 from fastapi import FastAPI, Request, HTTPException
 import requests
 import json
 from dotenv import load_dotenv
 
-print("--- VERIFICAÇÃO DAS VARIÁVEIS DE AMBIENTE ---")
-print(f"CHATWOOT_URL: {os.getenv('CHATWOOT_URL')}")
-print(f"CHATWOOT_ACCOUNT_ID: {os.getenv('CHATWOOT_ACCOUNT_ID')}")
-print(f"CHATWOOT_INBOX_ID: {os.getenv('CHATWOOT_INBOX_ID')}")
-# Por segurança, mostramos apenas os primeiros e últimos caracteres do token.
-token = os.getenv('CHATWOOT_API_TOKEN', '')
-print(f"CHATWOOT_API_TOKEN: {token[:4]}...{token[-4:] if len(token) > 4 else ''}")
-print(f"WUZAPI_INSTANCE_NAME: {os.getenv('WUZAPI_INSTANCE_NAME')}")
-print(f"WUZAPI_API_URL: {os.getenv('WUZAPI_API_URL')}")
-token_wuz = os.getenv('WUZAPI_API_TOKEN', '')
-print(f"WUZAPI_API_TOKEN: {token_wuz[:4]}...{token_wuz[-4:] if len(token_wuz) > 4 else ''}")
-print("---------------------------------------------")
-
-# Carrega as variáveis de ambiente do arquivo .env
+# Carrega as variáveis de ambiente do arquivo .env no início de tudo
 load_dotenv()
 
-# --- CONFIGURAÇÃO (Lida a partir de Variáveis de Ambiente) ---
-CHATWOOT_URL = os.getenv("CHATWOOT_URL")
-CHATWOOT_ACCOUNT_ID = os.getenv("CHATWOOT_ACCOUNT_ID")
-CHATWOOT_INBOX_ID = os.getenv("CHATWOOT_INBOX_ID")
-CHATWOOT_API_TOKEN = os.getenv("CHATWOOT_API_TOKEN")
+# --- Diagnóstico e Validação das Variáveis de Ambiente ---
+print("--- Verificando Variáveis de Ambiente na Inicialização ---")
 
-# Validação para garantir que as variáveis foram configuradas
-REQUIRED_VARS = ["CHATWOOT_URL", "CHATWOOT_ACCOUNT_ID", "CHATWOOT_INBOX_ID", "CHATWOOT_API_TOKEN"]
-for var in REQUIRED_VARS:
-    if not os.getenv(var):
-        raise RuntimeError(f"Erro Crítico: A variável de ambiente obrigatória '{var}' não foi definida!")
+VARS_TO_CHECK = {
+    "CHATWOOT_URL": os.getenv("CHATWOOT_URL"),
+    "CHATWOOT_ACCOUNT_ID": os.getenv("CHATWOOT_ACCOUNT_ID"),
+    "CHATWOOT_INBOX_ID": os.getenv("CHATWOOT_INBOX_ID"),
+    "CHATWOOT_API_TOKEN": os.getenv("CHATWOOT_API_TOKEN"),
+    "WUZAPI_API_URL": os.getenv("WUZAPI_API_URL"),
+    "WUZAPI_API_TOKEN": os.getenv("WUZAPI_API_TOKEN"),
+    "WUZAPI_INSTANCE_NAME": os.getenv("WUZAPI_INSTANCE_NAME"),
+}
+
+missing_vars = []
+for var_name, value in VARS_TO_CHECK.items():
+    if not value:
+        print(f"❌ ERRO: Variável de ambiente '{var_name}' NÃO ENCONTRADA.")
+        missing_vars.append(var_name)
+    else:
+        if "TOKEN" in var_name:
+            print(f"✅ OK: Variável '{var_name}' carregada (termina com '...{value[-4:]}').")
+        else:
+            print(f"✅ OK: Variável '{var_name}' carregada com o valor: {value}")
+
+print("----------------------------------------------------")
+
+if missing_vars:
+    print(f"ERRO CRÍTICO: A aplicação não pode iniciar porque as seguintes variáveis de ambiente obrigatórias estão faltando: {', '.join(missing_vars)}")
+    print("Por favor, configure-as no seu ambiente (EasyPanel, arquivo .env, etc.) e reinicie a aplicação.")
+    sys.exit(1)
+
+# Atribuição das variáveis após a validação bem-sucedida
+CHATWOOT_URL = VARS_TO_CHECK["CHATWOOT_URL"]
+CHATWOOT_ACCOUNT_ID = VARS_TO_CHECK["CHATWOOT_ACCOUNT_ID"]
+CHATWOOT_INBOX_ID = VARS_TO_CHECK["CHATWOOT_INBOX_ID"]
+CHATWOOT_API_TOKEN = VARS_TO_CHECK["CHATWOOT_API_TOKEN"]
+WUZAPI_API_URL = VARS_TO_CHECK["WUZAPI_API_URL"]
+WUZAPI_API_TOKEN = VARS_TO_CHECK["WUZAPI_API_TOKEN"]
+WUZAPI_INSTANCE_NAME = VARS_TO_CHECK["WUZAPI_INSTANCE_NAME"]
 
 HEADERS = {'api_access_token': CHATWOOT_API_TOKEN, 'Content-Type': 'application/json'}
 
