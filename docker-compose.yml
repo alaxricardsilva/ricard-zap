@@ -1,0 +1,23 @@
+services:
+  ricard-zap-bridge:
+    # 'build' diz ao Docker para construir a imagem a partir do Dockerfile
+    # que está dentro do diretório ./Ricard-ZAP
+    build: ./Ricard-ZAP
+    
+    # Define o nome do contêiner para fácil identificação
+    container_name: ricard-zap-bridge
+    
+    # Reinicia o serviço automaticamente se ele falhar
+    restart: unless-stopped
+    
+    # A seção de 'ports' foi removida, como o EasyPanel prefere.
+    # Você deve configurar as portas na interface do EasyPanel:
+    # Porta do Host (Externa): 8090
+    # Porta do Contêiner (Interna): 9000
+    
+    # A seção de 'environment' também foi removida.
+    # Você deve configurar as variáveis na interface do EasyPanel:
+    # CHATWOOT_URL=https://chat.cdnproxy.top
+    # CHATWOOT_ACCOUNT_ID=1
+    # CHATWOOT_INBOX_ID=1
+    # CHATWOOT_API_TOKEN=SEU_TOKEN_REAL_AQUI
