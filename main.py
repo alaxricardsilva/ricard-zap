@@ -4,6 +4,19 @@ import requests
 import json
 from dotenv import load_dotenv
 
+print("--- VERIFICAÇÃO DAS VARIÁVEIS DE AMBIENTE ---")
+print(f"CHATWOOT_URL: {os.getenv('CHATWOOT_URL')}")
+print(f"CHATWOOT_ACCOUNT_ID: {os.getenv('CHATWOOT_ACCOUNT_ID')}")
+print(f"CHATWOOT_INBOX_ID: {os.getenv('CHATWOOT_INBOX_ID')}")
+# Por segurança, mostramos apenas os primeiros e últimos caracteres do token.
+token = os.getenv('CHATWOOT_API_TOKEN', '')
+print(f"CHATWOOT_API_TOKEN: {token[:4]}...{token[-4:] if len(token) > 4 else ''}")
+print(f"WUZAPI_INSTANCE_NAME: {os.getenv('WUZAPI_INSTANCE_NAME')}")
+print(f"WUZAPI_API_URL: {os.getenv('WUZAPI_API_URL')}")
+token_wuz = os.getenv('WUZAPI_API_TOKEN', '')
+print(f"WUZAPI_API_TOKEN: {token_wuz[:4]}...{token_wuz[-4:] if len(token_wuz) > 4 else ''}")
+print("---------------------------------------------")
+
 # Carrega as variáveis de ambiente do arquivo .env
 load_dotenv()
 
@@ -11,7 +24,7 @@ load_dotenv()
 CHATWOOT_URL = os.getenv("CHATWOOT_URL")
 CHATWOOT_ACCOUNT_ID = os.getenv("CHATWOOT_ACCOUNT_ID")
 CHATWOOT_INBOX_ID = os.getenv("CHATWOOT_INBOX_ID")
-CHATWOOT_API_TOKEN = "MJFcBLLuTgresHixfYgD4dar"  # AVISO: APENAS PARA TESTE
+CHATWOOT_API_TOKEN = os.getenv("CHATWOOT_API_TOKEN")
 
 # Validação para garantir que as variáveis foram configuradas
 REQUIRED_VARS = ["CHATWOOT_URL", "CHATWOOT_ACCOUNT_ID", "CHATWOOT_INBOX_ID", "CHATWOOT_API_TOKEN"]
@@ -23,6 +36,44 @@ HEADERS = {'api_access_token': CHATWOOT_API_TOKEN, 'Content-Type': 'application/
 
 # Cria a aplicação FastAPI
 app = FastAPI(title="Ponte Ricard-ZAP", version="1.0.0")
+
+# --- Variáveis e Funções para WuzAPI (Envio) ---
+WUZAPI_INSTANCE_NAME = os.getenv("WUZAPI_INSTANCE_NAME")
+WUZAPI_API_URL = os.getenv("WUZAPI_API_URL")
+WUZAPI_API_TOKEN = os.getenv("WUZAPI_API_TOKEN")
+
+def send_message_via_wuzapi(phone_number: str, message: str):
+    """Envia uma mensagem de texto para um número via WuzAPI."""
+    if not all([WUZAPI_API_URL, WUZAPI_API_TOKEN, WUZAPI_INSTANCE_NAME]):
+        print("ERRO: Variáveis de ambiente da WuzAPI para envio não configuradas (WUZAPI_INSTANCE_NAME, WUZAPI_API_URL, WUZAPI_API_TOKEN).")
+        return
+
+    # Monta a URL e o payload para a API da WuzAPI.
+    # ATENÇÃO: A estrutura do endpoint e do payload é uma suposição comum.
+    # Pode precisar de ajuste dependendo da documentação exata da sua versão da WuzAPI.
+    send_url = f"{WUZAPI_API_URL}/message/sendText/{WUZAPI_INSTANCE_NAME}"
+    payload = {
+        "number": phone_number,
+        "message": {
+            "text": message
+        }
+    }
+    headers = {
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+        "apikey": WUZAPI_API_TOKEN  # WuzAPI geralmente usa 'apikey' no header
+    }
+    
+    try:
+        print(f"Enviando mensagem para {phone_number} via WuzAPI.")
+        response = requests.post(send_url, json=payload, headers=headers)
+        response.raise_for_status()
+        print(f"Mensagem enviada para a WuzAPI com sucesso. Resposta: {response.json()}")
+    except requests.exceptions.RequestException as e:
+        print(f"ERRO ao enviar mensagem para a WuzAPI: {e}")
+        if e.response is not None:
+            print(f"Status da Resposta: {e.response.status_code}")
+            print(f"Corpo da Resposta: {e.response.text}")
 
 # --- FUNÇÕES DE INTERAÇÃO COM O CHATWOOT ---
 
@@ -172,14 +223,19 @@ async def handle_wuzapi_webhook(request: Request):
         if event_type == "Message" and not info.get("IsGroup") and info.get("Chat") != "status@broadcast":
             message = event_data.get("Message", {})
             
-            # Precisamos de uma maneira confiável de obter o número do remetente. 'SenderAlt' parece bom.
-            sender_alt = info.get("SenderAlt", "")
-            if not sender_alt:
-                print("Ignorando mensagem: 'SenderAlt' não encontrado.")
-                return {"status": "ignored", "reason": "SenderAlt not found"}
+            # Lógica de extração de telefone e nome, adaptada para múltiplos formatos.
+            sender_raw = event_data.get('Sender')
+            if sender_raw and '@' in sender_raw:
+                sender_phone = sender_raw.split('@')[0]
+                sender_name = info.get("PushName", sender_phone)
+            else:
+                print("Campo 'Sender' do evento não encontrado/inválido. Tentando fallback para campos de nível raiz.")
+                sender_phone = str(raw_data.get("sender", ""))
+                sender_name = raw_data.get("name", sender_phone)
 
-            sender_phone = sender_alt.split(':')[0].split('@')[0] # Garante que pegamos apenas o número
-            sender_name = info.get("PushName", sender_phone) # Usa o telefone se não houver nome
+            if not sender_phone:
+                print("Ignorando mensagem: Número do remetente não pôde ser determinado.")
+                return {"status": "ignored", "reason": "Could not determine sender phone number"}
             message_content = message.get("conversation") # Para mensagens de texto
 
             # Lida com outros tipos de mensagem, se necessário no futuro
@@ -223,3 +279,47 @@ async def handle_wuzapi_webhook(request: Request):
 @app.get("/")
 def read_root():
     return {"message": "Ponte Ricard-ZAP -> Chatwoot está no ar!"}
+
+
+# --- Webhook para Receber Mensagens do Chatwoot (para enviar ao WhatsApp) ---
+@app.post("/webhook/chatwoot")
+async def handle_chatwoot_webhook(request: Request):
+    """Recebe webhooks do Chatwoot e envia a mensagem para o cliente via WuzAPI."""
+    try:
+        data = await request.json()
+        print("--- Webhook Recebido do Chatwoot ---")
+        print(json.dumps(data, indent=2))
+
+        # Ignora mensagens privadas ou que não sejam de saída
+        if data.get("private") or data.get("message_type") != "outgoing":
+            print("Ignorando webhook: Mensagem privada ou não é de saída.")
+            return {"status": "ignored", "reason": "private or not outgoing message"}
+
+        # Ignora se não for uma mensagem de um agente (para evitar loops)
+        sender_type = data.get("sender", {}).get("type")
+        if sender_type not in ["agent_bot", "user"]:
+             print(f"Ignorando webhook: Remetente não é um agente (tipo: {sender_type}).")
+             return {"status": "ignored", "reason": "sender is not an agent"}
+
+        content = data.get("content")
+        contact_phone = data.get("conversation", {}).get("meta", {}).get("sender", {}).get("phone_number")
+        
+        # O número de telefone no Chatwoot pode ter um "+". A WuzAPI pode não precisar dele.
+        if contact_phone:
+            clean_phone = contact_phone.replace("+", "")
+        else:
+            print("ERRO: Não foi possível encontrar o número de telefone do contato no webhook do Chatwoot.")
+            return {"status": "error", "reason": "phone number not found"}
+
+        if not content:
+            print("Ignorando webhook: Conteúdo da mensagem está vazio.")
+            return {"status": "ignored", "reason": "empty content"}
+
+        # Envia a mensagem usando nossa nova função
+        send_message_via_wuzapi(phone_number=clean_phone, message=content)
+
+        return {"status": "success"}
+
+    except Exception as e:
+        print(f"ERRO CRÍTICO ao processar webhook do Chatwoot: {e}")
+        return {"status": "error", "detail": str(e)}
