@@ -1,8 +1,1 @@
-# Arquivos de ambiente - REMOVIDO TEMPORARIAMENTE PARA DEPLOY
-
-# Ignorar diretórios de cache do Python
-__pycache__/
-*.pyc
-
-# Ignorar arquivos de sistema
-.DS_Store
+.env
