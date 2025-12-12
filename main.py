@@ -11,8 +11,10 @@ CHATWOOT_INBOX_ID = os.getenv("CHATWOOT_INBOX_ID")
 CHATWOOT_API_TOKEN = os.getenv("CHATWOOT_API_TOKEN")
 
 # Validação para garantir que as variáveis foram configuradas
-if not all([CHATWOOT_URL, CHATWOOT_ACCOUNT_ID, CHATWOOT_INBOX_ID, CHATWOOT_API_TOKEN]):
-    raise RuntimeError("Erro: Uma ou mais variáveis de ambiente do Chatwoot não foram definidas!")
+REQUIRED_VARS = ["CHATWOOT_URL", "CHATWOOT_ACCOUNT_ID", "CHATWOOT_INBOX_ID", "CHATWOOT_API_TOKEN"]
+for var in REQUIRED_VARS:
+    if not os.getenv(var):
+        raise RuntimeError(f"Erro Crítico: A variável de ambiente obrigatória '{var}' não foi definida!")
 
 HEADERS = {'api_access_token': CHATWOOT_API_TOKEN, 'Content-Type': 'application/json'}
 
