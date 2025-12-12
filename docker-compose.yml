@@ -4,9 +4,6 @@ services:
     # que está dentro do diretório ./Ricard-ZAP
     build: ./Ricard-ZAP
     
-    # Define o nome do contêiner para fácil identificação
-    container_name: ricard-zap-bridge
-    
     # Reinicia o serviço automaticamente se ele falhar
     restart: unless-stopped
     
