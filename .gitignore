@@ -1,5 +1,4 @@
-# Ignorar arquivos de ambiente locais que contêm segredos
-.env
+# Arquivos de ambiente - REMOVIDO TEMPORARIAMENTE PARA DEPLOY
 
 # Ignorar diretórios de cache do Python
 __pycache__/

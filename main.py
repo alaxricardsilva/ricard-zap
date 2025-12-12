@@ -2,9 +2,12 @@ import os
 from fastapi import FastAPI, Request, HTTPException
 import requests
 import json
+from dotenv import load_dotenv
+
+# Carrega as variáveis de ambiente do arquivo .env
+load_dotenv()
 
 # --- CONFIGURAÇÃO (Lida a partir de Variáveis de Ambiente) ---
-# O EasyPanel vai injetar esses valores no contêiner.
 CHATWOOT_URL = os.getenv("CHATWOOT_URL")
 CHATWOOT_ACCOUNT_ID = os.getenv("CHATWOOT_ACCOUNT_ID")
 CHATWOOT_INBOX_ID = os.getenv("CHATWOOT_INBOX_ID")
