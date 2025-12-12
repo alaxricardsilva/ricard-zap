@@ -55,3 +55,47 @@ git push https://alaxricardsilva:<SEU_TOKEN_AQUI>@github.com/alaxricardsilva/ric
 ```
 
 Após executar este comando, suas alterações serão enviadas para o branch `main` do seu repositório no GitHub.
+
+---
+
+### Passo 3: Criando uma Release (Versão) no GitHub
+
+Criar uma "Release" é uma forma profissional de marcar uma versão estável do seu projeto. O processo envolve criar uma "tag" (etiqueta) e depois enviá-la para o GitHub.
+
+**1. Crie a Tag Localmente:**
+
+Depois de enviar seu código com sucesso (Passo 2), execute o comando abaixo no terminal para criar uma etiqueta de versão. Substitua `v1.0.0` pelo número da versão desejada e a mensagem por algo descritivo.
+
+```bash
+git tag -a v1.0.0 -m "v1.0.0: Descrição das alterações nesta versão"
+```
+
+**Exemplo:**
+```bash
+git tag -a v1.0.0 -m "v1.0.0: Lançamento inicial da integração WuzAPI e Chatwoot"
+```
+
+**2. Envie a Tag para o GitHub:**
+
+A tag criada existe apenas localmente. Para enviá-la ao GitHub, você precisa fazer um `push` específico para ela, usando o mesmo método de autenticação com token.
+
+**Comando:**
+```bash
+git push https://<SEU_USUARIO>:<SEU_TOKEN>@github.com/<SEU_USUARIO>/<NOME_DO_REPOSITORIO>.git <NOME_DA_TAG>
+```
+
+**Exemplo para a tag `v1.0.0`:**
+```bash
+git push https://alaxricardsilva:<SEU_TOKEN_AQUI>@github.com/alaxricardsilva/ricard-zap.git v1.0.0
+```
+
+**3. Crie a Release na Interface do GitHub:**
+
+- Vá para a página do seu repositório no GitHub.
+- Clique em **"Releases"** na barra lateral direita.
+- Clique em **"Create a new release"** ou **"Draft a new release"**.
+- No campo "Choose a tag", selecione a tag que você acabou de enviar (ex: `v1.0.0`).
+- Dê um título e uma descrição detalhada para a sua release, explicando o que mudou.
+- Clique em **"Publish release"**.
+
+Pronto! Agora você tem uma versão oficial do seu projeto documentada no GitHub.
