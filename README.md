@@ -4,10 +4,11 @@ Este projeto é um serviço de ponte (bridge) construído em FastAPI (Python) qu
 
 ## Funcionalidades
 
-- **Recebimento de Mensagens**: Recebe webhooks da WuzAPI sobre novas mensagens do WhatsApp e as cria na conversa correta dentro do Chatwoot.
+- **Recebimento de Mensagens**: Recebe webhooks da WuzAPI sobre novas mensagens do WhatsApp (de conversas privadas e de grupos) e as cria na conversa correta dentro do Chatwoot.
 - **Envio de Respostas**: Recebe webhooks do Chatwoot quando um agente responde a uma conversa e envia essa resposta para o cliente final via WuzAPI.
-- **Criação de Contatos**: Se uma mensagem é recebida de um número que não existe no Chatwoot, um novo contato é criado automaticamente.
-- **Correção de Identificador**: Extrai o número de telefone real do cliente, mesmo quando a WuzAPI utiliza um número de proxy no payload principal.
+- **Criação e Atualização de Contatos**: Se uma mensagem é recebida de um número que não existe no Chatwoot, um novo contato é criado automaticamente.
+- **Sincronização de Avatar**: Busca a foto de perfil do contato no WhatsApp (via WuzAPI) e a envia para o Chatwoot, mantendo o avatar do contato atualizado.
+- **Compatibilidade de Formato**: Processa múltiplos formatos de payload da WuzAPI, incluindo o novo formato que utiliza `SenderAlt` e estruturas aninhadas, garantindo maior robustez.
 
 ## Como Funciona
 
