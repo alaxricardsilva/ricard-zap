@@ -224,12 +224,12 @@ def update_contact_avatar(contact_id: int, avatar_url: str):
 # Função para buscar a foto do perfil na WuzAPI (CORRIGIDO CONFORME DOCUMENTAÇÃO)
 def get_wuzapi_profile_pic(phone_number_raw: str) -> str | None:
     """Busca a URL da foto de perfil de um contato na WuzAPI usando o número completo (com @s.whatsapp.net)."""
-    if not all([WUZAPI_API_URL, WUZAPI_API_TOKEN, WUZAPI_INSTANCE_NAME]):
+    if not all([WUZAPI_API_URL, WUZAPI_API_TOKEN]):
         print("AVISO: Variáveis da WuzAPI não configuradas para buscar foto de perfil.")
         return None
     
-    pic_url = f"{WUZAPI_API_URL}/chat/getProfilePic/{WUZAPI_INSTANCE_NAME}"
-    params = {"number": phone_number_raw} # A API espera o número com o @s.whatsapp.net
+    pic_url = f"{WUZAPI_API_URL}/chat/getProfilePic"
+    params = {"number": phone_number_raw}
     headers = {"Accept": "application/json", "token": WUZAPI_API_TOKEN}
 
     try:
