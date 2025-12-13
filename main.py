@@ -48,7 +48,14 @@ WUZAPI_API_URL = VARS_TO_CHECK["WUZAPI_API_URL"]
 WUZAPI_API_TOKEN = VARS_TO_CHECK["WUZAPI_API_TOKEN"]
 WUZAPI_INSTANCE_NAME = VARS_TO_CHECK["WUZAPI_INSTANCE_NAME"]
 
-HEADERS = {'api_access_token': CHATWOOT_API_TOKEN, 'Content-Type': 'application/json'}
+def get_chatwoot_headers(is_file_upload: bool = False) -> dict:
+    """Gera os cabeçalhos padrão para as requisições à API do Chatwoot."""
+    headers = {
+        'api_access_token': CHATWOOT_API_TOKEN
+    }
+    if not is_file_upload:
+        headers['Content-Type'] = 'application/json'
+    return headers
 
 # Cria a aplicação FastAPI
 app = FastAPI(title="Ponte Ricard-ZAP", version="1.0.0")
@@ -99,10 +106,10 @@ def search_contact(phone_number: str):
     try:
         print("--- Depuração da Requisição para o Chatwoot ---")
         print(f"URL da Requisição: {search_endpoint}")
-        print(f"Cabeçalhos (Headers): {HEADERS}")
+        print(f"Cabeçalhos (Headers): {get_chatwoot_headers()}")
         print(f"Parâmetros (Params): {params}")
         print("---------------------------------------------")
-        response = requests.get(search_endpoint, headers=HEADERS, params=params)
+        response = requests.get(search_endpoint, headers=get_chatwoot_headers(), params=params)
         response.raise_for_status()
         data = response.json()
         if data["meta"]["count"] > 0:
@@ -130,7 +137,7 @@ def create_contact(name: str, phone_number: str):
         "phone_number": phone_number
     }
     try:
-        response = requests.post(contact_endpoint, headers=HEADERS, json=payload)
+        response = requests.post(contact_endpoint, headers=get_chatwoot_headers(), json=payload)
         response.raise_for_status()
         contact = response.json()["payload"]["contact"]
         print(f"Contato criado: ID {contact['id']} para {name} ({phone_number})")
@@ -164,7 +171,7 @@ def find_or_create_conversation(contact_id: int):
     """Busca uma conversa existente para o contato ou cria uma nova."""
     conv_endpoint = f"{CHATWOOT_URL}/api/v1/accounts/{CHATWOOT_ACCOUNT_ID}/contacts/{contact_id}/conversations"
     try:
-        response = requests.get(conv_endpoint, headers=HEADERS)
+        response = requests.get(conv_endpoint, headers=get_chatwoot_headers())
         response.raise_for_status()
         conversations = response.json()["payload"]
         if conversations:
@@ -175,7 +182,7 @@ def find_or_create_conversation(contact_id: int):
         print(f"Nenhuma conversa encontrada para o contato {contact_id}. Criando uma nova...")
         create_conv_endpoint = f"{CHATWOOT_URL}/api/v1/accounts/{CHATWOOT_ACCOUNT_ID}/conversations"
         payload = { "inbox_id": CHATWOOT_INBOX_ID, "contact_id": contact_id }
-        create_response = requests.post(create_conv_endpoint, headers=HEADERS, json=payload)
+        create_response = requests.post(create_conv_endpoint, headers=get_chatwoot_headers(), json=payload)
         create_response.raise_for_status()
         new_conv_id = create_response.json()['id']
         print(f"Conversa criada: ID {new_conv_id} para o contato {contact_id}")
@@ -190,7 +197,7 @@ def send_message_to_conversation(conversation_id: int, message_content: str):
     message_endpoint = f"{CHATWOOT_URL}/api/v1/accounts/{CHATWOOT_ACCOUNT_ID}/conversations/{conversation_id}/messages"
     payload = {"content": message_content, "message_type": "incoming"}
     try:
-        response = requests.post(message_endpoint, headers=HEADERS, json=payload)
+        response = requests.post(message_endpoint, headers=get_chatwoot_headers(), json=payload)
         response.raise_for_status()
         print(f"Mensagem enviada com sucesso para a conversa {conversation_id}")
         return response.json()
@@ -207,8 +214,7 @@ def update_contact_avatar(contact_id: int, avatar_url: str):
         response.raise_for_status()
         avatar_endpoint = f"{CHATWOOT_URL}/api/v1/accounts/{CHATWOOT_ACCOUNT_ID}/contacts/{contact_id}/avatar"
         files = {'avatar': response.content}
-        avatar_headers = {'api_access_token': CHATWOOT_API_TOKEN}
-        upload_response = requests.post(avatar_endpoint, headers=avatar_headers, files=files)
+        upload_response = requests.post(avatar_endpoint, headers=get_chatwoot_headers(is_file_upload=True), files=files)
         upload_response.raise_for_status()
         print(f"Contato {contact_id}: Avatar atualizado com sucesso!")
     except Exception as e:
@@ -217,24 +223,21 @@ def update_contact_avatar(contact_id: int, avatar_url: str):
 # --- ENDPOINT DO WEBHOOK ---
 # Função para buscar a foto do perfil na WuzAPI (CORRIGIDO CONFORME DOCUMENTAÇÃO)
 def get_wuzapi_profile_pic(phone_number_raw: str) -> str | None:
-    """Busca a URL da foto de perfil de um contato na WuzAPI."""
-    if not all([WUZAPI_API_URL, WUZAPI_API_TOKEN]):
+    """Busca a URL da foto de perfil de um contato na WuzAPI usando o número completo (com @s.whatsapp.net)."""
+    if not all([WUZAPI_API_URL, WUZAPI_API_TOKEN, WUZAPI_INSTANCE_NAME]):
         print("AVISO: Variáveis da WuzAPI não configuradas para buscar foto de perfil.")
         return None
     
-    # A documentação indica que o endpoint é /user/avatar e é um POST
-    pic_url = f"{WUZAPI_API_URL}/user/avatar"
-    # O número não deve conter o '@lid' ou '@s.whatsapp.net'
-    clean_number = phone_number_raw.split('@')[0]
-    payload = {"number": clean_number}
-    headers = {"Accept": "application/json", "Content-Type": "application/json", "token": WUZAPI_API_TOKEN}
+    pic_url = f"{WUZAPI_API_URL}/chat/getProfilePic/{WUZAPI_INSTANCE_NAME}"
+    params = {"number": phone_number_raw} # A API espera o número com o @s.whatsapp.net
+    headers = {"Accept": "application/json", "token": WUZAPI_API_TOKEN}
 
     try:
-        print(f"Buscando foto de perfil para o número: {clean_number} via POST em {pic_url}")
-        response = requests.post(pic_url, headers=headers, json=payload)
+        print(f"Buscando foto de perfil para o número: {phone_number_raw}")
+        response = requests.get(pic_url, headers=headers, params=params)
         response.raise_for_status()
         data = response.json()
-        avatar_url = data.get("profileImage") # Suposição de que a chave seja 'profileImage'
+        avatar_url = data.get("profileImage")
         if avatar_url:
             print(f"URL do avatar encontrada: {avatar_url}")
             return avatar_url
