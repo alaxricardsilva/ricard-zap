@@ -4,6 +4,7 @@ from fastapi import FastAPI, Request, HTTPException
 import requests
 import json
 from dotenv import load_dotenv
+import re
 
 # Carrega as variáveis de ambiente do arquivo .env no início de tudo
 load_dotenv()
@@ -86,7 +87,7 @@ def send_message_via_wuzapi(phone_number: str, message: str):
 
     try:
         print(f"Enviando mensagem para {phone_number} via POST em {send_url}")
-        response = requests.post(send_url, headers=headers, json=payload)
+        response = requests.post(send_url, headers=headers, json=payload, timeout=15)
         response.raise_for_status()
         print(f"Mensagem enviada com sucesso para {phone_number}.")
     except requests.exceptions.RequestException as e:
@@ -204,6 +205,38 @@ def send_message_to_conversation(conversation_id: int, message_content: str):
         print(f"Erro ao enviar mensagem para a conversa {conversation_id}: {e}")
         return None
 
+def get_conversation_phone_number(conversation_id: int) -> str | None:
+    conv_endpoint = f"{CHATWOOT_URL}/api/v1/accounts/{CHATWOOT_ACCOUNT_ID}/conversations/{conversation_id}"
+    try:
+        response = requests.get(conv_endpoint, headers=get_chatwoot_headers())
+        response.raise_for_status()
+        data = response.json()
+
+        meta_sender = data.get("meta", {}).get("sender", {}) or {}
+        phone = meta_sender.get("phone_number")
+        if phone:
+            print(f"Telefone encontrado em meta.sender para a conversa {conversation_id}: {phone}")
+            return phone
+
+        meta_contact = data.get("meta", {}).get("contact", {}) or {}
+        phone = meta_contact.get("phone_number")
+        if phone:
+            print(f"Telefone encontrado em meta.contact para a conversa {conversation_id}: {phone}")
+            return phone
+
+        contact = data.get("contact") or {}
+        if isinstance(contact, dict):
+            phone = contact.get("phone_number")
+            if phone:
+                print(f"Telefone encontrado em contact para a conversa {conversation_id}: {phone}")
+                return phone
+
+        print(f"Não foi possível encontrar phone_number na conversa {conversation_id}.")
+        return None
+    except Exception as e:
+        print(f"Erro ao buscar telefone da conversa {conversation_id}: {e}")
+        return None
+
 def update_contact_avatar(contact_id: int, avatar_url: str):
     if not avatar_url:
         print(f"Contato {contact_id}: Nenhuma URL de avatar fornecida.")
@@ -297,16 +330,14 @@ async def handle_wuzapi_webhook(request: Request):
         chat_jid = info.get("Chat") or info.get("ChatJid") or event_data.get("Chat") or sender_raw
         is_group = "@g.us" in chat_jid or info.get("IsGroup") is True or info.get("isGroup") is True
 
+        if is_group:
+            print("Ignorando mensagem: Chat de grupo não é suportado.")
+            return {"status": "ignored", "reason": "group chats not supported"}
+
         sender_phone = sender_raw.split('@')[0]
         sender_name = info.get("PushName") or info.get("pushName", sender_phone)
-
-        if is_group:
-            group_name = info.get("ChatName") or info.get("GroupName") or info.get("GroupSubject") or chat_jid
-            contact_name = f"[GRUPO] {group_name}"
-            contact_identifier = chat_jid
-        else:
-            contact_name = sender_name
-            contact_identifier = sender_phone
+        contact_name = sender_name
+        contact_identifier = sender_phone
         
         message_data = event_data.get("Message", event_data)
         message_content = message_data.get("conversation") or message_data.get("body")
@@ -319,8 +350,7 @@ async def handle_wuzapi_webhook(request: Request):
                 print("Ignorando mensagem: Conteúdo vazio.")
                 return {"status": "ignored", "reason": "empty message content"}
 
-        avatar_target = chat_jid if is_group else sender_raw
-        avatar_url = get_wuzapi_profile_pic(avatar_target)
+        avatar_url = get_wuzapi_profile_pic(sender_raw)
 
         contact_id = search_or_create_contact(contact_name, contact_identifier, avatar_url)
         if not contact_id:
@@ -337,7 +367,7 @@ async def handle_wuzapi_webhook(request: Request):
         return {"status": "success"}
 
     except Exception as e:
-        print("Erro fatal ao processar o webhook: {e}")
+        print(f"Erro fatal ao processar o webhook: {e}")
         raise HTTPException(status_code=500, detail=f"Erro interno no servidor da ponte: {e}")
 
 
@@ -378,18 +408,30 @@ async def handle_chatwoot_webhook(request: Request):
              return {"status": "ignored", "reason": "sender is not an agent"}
 
         content = data.get("content")
-        contact_meta = data.get("conversation", {}).get("meta", {})
-        sender_meta = contact_meta.get("sender", {})
-        contact_phone = sender_meta.get("phone_number")
+        conversation = data.get("conversation") or {}
+        conversation_id = conversation.get("id") or data.get("conversation_id")
+        contact_meta = conversation.get("meta", {}) or {}
+        sender_meta = contact_meta.get("sender", {}) or {}
+        contact = conversation.get("contact") or {}
+
+        contact_phone = (
+            sender_meta.get("phone_number")
+            or contact.get("phone_number")
+            or data.get("sender", {}).get("phone_number")
+        )
+
+        if not contact_phone and conversation_id:
+            contact_phone = get_conversation_phone_number(conversation_id)
         
         if not contact_phone:
             print("ERRO: Não foi possível encontrar o número de telefone do contato no webhook do Chatwoot.")
             return {"status": "error", "reason": "phone number not found"}
 
-        if "@g.us" in contact_phone:
-            destination = contact_phone
-        else:
-            destination = contact_phone.replace("+", "")
+        if "@" in contact_phone:
+            print("Ignorando webhook: Número do contato indica grupo e grupos não são suportados.")
+            return {"status": "ignored", "reason": "group chats not supported"}
+
+        destination = re.sub(r"\\D", "", contact_phone)
 
         if not content:
             print("Ignorando webhook: Conteúdo da mensagem está vazio.")
