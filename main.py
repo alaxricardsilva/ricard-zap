@@ -124,18 +124,19 @@ def search_contact(phone_number: str):
         print(f"Erro ao buscar contato com número {phone_number}: {e}")
         return None
 
-def create_contact(name: str, phone_number: str):
+def create_contact(name: str, phone_number: str, avatar_url: str | None = None):
     """Cria um novo contato no Chatwoot."""
     contact_endpoint = f"{CHATWOOT_URL}/api/v1/accounts/{CHATWOOT_ACCOUNT_ID}/contacts"
-    # Garante que o número de telefone tenha o prefixo '+'
-    if not phone_number.startswith('+'):
+    if '@' not in phone_number and not phone_number.startswith('+'):
         phone_number = f"+{phone_number}"
         
     payload = {
         "inbox_id": CHATWOOT_INBOX_ID,
         "name": name,
-        "phone_number": phone_number
+        "phone_number": phone_number,
     }
+    if avatar_url:
+        payload["avatar_url"] = avatar_url
     try:
         response = requests.post(contact_endpoint, headers=get_chatwoot_headers(), json=payload)
         response.raise_for_status()
@@ -151,14 +152,12 @@ def search_or_create_contact(name: str, phone_number: str, avatar_url: str | Non
     contact = search_contact(phone_number)
     if contact:
         contact_id = contact['id']
-        # Se o contato existe, verifica se o avatar precisa ser atualizado
         if avatar_url and contact.get("avatar_url") != avatar_url:
             print(f"Contato {contact_id}: Avatar desatualizado. Atualizando...")
             update_contact_avatar(contact_id, avatar_url)
         return contact_id
     
-    # Se não encontrou, cria um novo já com o avatar
-    new_contact = create_contact(name, phone_number)
+    new_contact = create_contact(name, phone_number, avatar_url)
     if new_contact:
         contact_id = new_contact['id']
         if avatar_url:
@@ -210,11 +209,9 @@ def update_contact_avatar(contact_id: int, avatar_url: str):
         print(f"Contato {contact_id}: Nenhuma URL de avatar fornecida.")
         return
     try:
-        response = requests.get(avatar_url, stream=True)
-        response.raise_for_status()
-        avatar_endpoint = f"{CHATWOOT_URL}/api/v1/accounts/{CHATWOOT_ACCOUNT_ID}/contacts/{contact_id}/avatar"
-        files = {'avatar': response.content}
-        upload_response = requests.post(avatar_endpoint, headers=get_chatwoot_headers(is_file_upload=True), files=files)
+        avatar_endpoint = f"{CHATWOOT_URL}/api/v1/accounts/{CHATWOOT_ACCOUNT_ID}/contacts/{contact_id}"
+        payload = {"avatar_url": avatar_url}
+        upload_response = requests.put(avatar_endpoint, headers=get_chatwoot_headers(), json=payload)
         upload_response.raise_for_status()
         print(f"Contato {contact_id}: Avatar atualizado com sucesso!")
     except Exception as e:
@@ -228,22 +225,34 @@ def get_wuzapi_profile_pic(phone_number_raw: str) -> str | None:
         print("AVISO: Variáveis da WuzAPI não configuradas para buscar foto de perfil.")
         return None
     
-    pic_url = f"{WUZAPI_API_URL}/chat/getProfilePic"
-    params = {"number": phone_number_raw}
-    headers = {"Accept": "application/json", "token": WUZAPI_API_TOKEN}
-
     try:
-        print(f"Buscando foto de perfil para o número: {phone_number_raw}")
-        response = requests.get(pic_url, headers=headers, params=params)
-        response.raise_for_status()
-        data = response.json()
-        avatar_url = data.get("profileImage")
+        base_number = phone_number_raw.split("@")[0].replace("+", "")
+        headers = {"Content-Type": "application/json", "token": WUZAPI_API_TOKEN}
+        avatar_url = None
+
+        user_avatar_url = f"{WUZAPI_API_URL}/user/avatar"
+        print(f"Buscando foto de perfil via /user/avatar para: {base_number}")
+        response = requests.post(user_avatar_url, headers=headers, json={"phone": base_number})
+        if response.status_code == 200:
+            data = response.json()
+            results = data.get("results") or {}
+            avatar_url = results.get("url") or data.get("profileImage")
+
+        if not avatar_url:
+            legacy_url = f"{WUZAPI_API_URL}/chat/getProfilePic"
+            legacy_headers = {"Accept": "application/json", "token": WUZAPI_API_TOKEN}
+            print(f"Buscando foto de perfil via /chat/getProfilePic para: {phone_number_raw}")
+            legacy_response = requests.get(legacy_url, headers=legacy_headers, params={"number": phone_number_raw})
+            if legacy_response.status_code == 200:
+                legacy_data = legacy_response.json()
+                avatar_url = legacy_data.get("profileImage") or legacy_data.get("url")
+
         if avatar_url:
             print(f"URL do avatar encontrada: {avatar_url}")
             return avatar_url
-        else:
-            print("Foto de perfil não encontrada na resposta da WuzAPI.")
-            return None
+
+        print("Foto de perfil não encontrada na resposta da WuzAPI.")
+        return None
     except requests.exceptions.RequestException as e:
         print(f"ERRO ao buscar foto de perfil na WuzAPI: {e}")
         if e.response is not None:
@@ -273,7 +282,6 @@ async def handle_wuzapi_webhook(request: Request):
             print(f"Ignorando evento: tipo '{event_type}' não é 'Message'.")
             return {"status": "ignored", "reason": f"Event type is {event_type}"}
 
-        # Extração de dados do novo formato (e fallback para o antigo)
         info = event_data.get("Info", event_data) # Fallback para o próprio event_data
         
         sender_raw = info.get('SenderAlt') or info.get('Sender')
@@ -286,10 +294,21 @@ async def handle_wuzapi_webhook(request: Request):
             print("Ignorando evento de status broadcast.")
             return {"status": "ignored", "reason": "status broadcast"}
 
+        chat_jid = info.get("Chat") or info.get("ChatJid") or event_data.get("Chat") or sender_raw
+        is_group = "@g.us" in chat_jid or info.get("IsGroup") is True or info.get("isGroup") is True
+
         sender_phone = sender_raw.split('@')[0]
         sender_name = info.get("PushName") or info.get("pushName", sender_phone)
+
+        if is_group:
+            group_name = info.get("ChatName") or info.get("GroupName") or info.get("GroupSubject") or chat_jid
+            contact_name = f"[GRUPO] {group_name}"
+            contact_identifier = chat_jid
+        else:
+            contact_name = sender_name
+            contact_identifier = sender_phone
         
-        message_data = event_data.get("Message", event_data) # Fallback
+        message_data = event_data.get("Message", event_data)
         message_content = message_data.get("conversation") or message_data.get("body")
         message_type = info.get("Type", "text")
 
@@ -300,28 +319,31 @@ async def handle_wuzapi_webhook(request: Request):
                 print("Ignorando mensagem: Conteúdo vazio.")
                 return {"status": "ignored", "reason": "empty message content"}
 
-        # Buscar Avatar
-        avatar_url = get_wuzapi_profile_pic(sender_raw)
+        avatar_target = chat_jid if is_group else sender_raw
+        avatar_url = get_wuzapi_profile_pic(avatar_target)
 
-        # Buscar ou Criar Contato (já com lógica de avatar)
-        contact_id = search_or_create_contact(sender_name, sender_phone, avatar_url)
+        contact_id = search_or_create_contact(contact_name, contact_identifier, avatar_url)
         if not contact_id:
             raise HTTPException(status_code=500, detail="Falha ao buscar ou criar contato no Chatwoot.")
 
-        # Buscar ou Criar Conversa
         conversation_id = find_or_create_conversation(contact_id)
         if not conversation_id:
             raise HTTPException(status_code=500, detail="Falha ao buscar ou criar conversa no Chatwoot.")
 
-        # Enviar Mensagem para a Conversa
-        send_message_to_conversation(conversation_id, message_content)
+        display_message_content = f"{sender_name}: {message_content}" if is_group else message_content
+        send_message_to_conversation(conversation_id, display_message_content)
         
         print("Webhook processado com sucesso.")
         return {"status": "success"}
 
     except Exception as e:
-        print(f"Erro fatal ao processar o webhook: {e}")
+        print("Erro fatal ao processar o webhook: {e}")
         raise HTTPException(status_code=500, detail=f"Erro interno no servidor da ponte: {e}")
+
+
+@app.post("/webhook-wuzapi")
+async def handle_wuzapi_webhook_compat(request: Request):
+    return await handle_wuzapi_webhook(request)
 
 
 # Endpoint de teste
@@ -339,6 +361,11 @@ async def handle_chatwoot_webhook(request: Request):
         print("--- Webhook Recebido do Chatwoot ---")
         print(json.dumps(data, indent=2))
 
+        event_name = data.get("event")
+        if event_name and event_name != "message_created":
+            print(f"Ignorando webhook: Evento '{event_name}' diferente de 'message_created'.")
+            return {"status": "ignored", "reason": f"event is {event_name}"}
+
         # Ignora mensagens privadas ou que não sejam de saída
         if data.get("private") or data.get("message_type") != "outgoing":
             print("Ignorando webhook: Mensagem privada ou não é de saída.")
@@ -351,24 +378,32 @@ async def handle_chatwoot_webhook(request: Request):
              return {"status": "ignored", "reason": "sender is not an agent"}
 
         content = data.get("content")
-        contact_phone = data.get("conversation", {}).get("meta", {}).get("sender", {}).get("phone_number")
+        contact_meta = data.get("conversation", {}).get("meta", {})
+        sender_meta = contact_meta.get("sender", {})
+        contact_phone = sender_meta.get("phone_number")
         
-        # O número de telefone no Chatwoot pode ter um "+". A WuzAPI pode não precisar dele.
-        if contact_phone:
-            clean_phone = contact_phone.replace("+", "")
-        else:
+        if not contact_phone:
             print("ERRO: Não foi possível encontrar o número de telefone do contato no webhook do Chatwoot.")
             return {"status": "error", "reason": "phone number not found"}
+
+        if "@g.us" in contact_phone:
+            destination = contact_phone
+        else:
+            destination = contact_phone.replace("+", "")
 
         if not content:
             print("Ignorando webhook: Conteúdo da mensagem está vazio.")
             return {"status": "ignored", "reason": "empty content"}
 
-        # Envia a mensagem usando nossa nova função
-        send_message_via_wuzapi(phone_number=clean_phone, message=content)
+        send_message_via_wuzapi(phone_number=destination, message=content)
 
         return {"status": "success"}
 
     except Exception as e:
         print(f"ERRO CRÍTICO ao processar webhook do Chatwoot: {e}")
         return {"status": "error", "detail": str(e)}
+
+
+@app.post("/webhook-chatwoot")
+async def handle_chatwoot_webhook_compat(request: Request):
+    return await handle_chatwoot_webhook(request)
